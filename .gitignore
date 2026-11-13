@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.npz
+*.pt
+
+__init__.py
+
+*.pdf
+*.png
+*.jpg
