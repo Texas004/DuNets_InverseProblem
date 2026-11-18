@@ -5,16 +5,28 @@ The trained models will be saved in the 'models' folder, and the training logs w
 
 import os
 import torch
+import time
 
 
 def _forward_step(model, inputs, targets, device):
-    """inputs / targets 都是张量；模型内部自带 sigma0 默认初始化。"""
     outputs = model(inputs.to(device))
     return outputs, targets.to(device)
 
 
 def _batch_size(targets):
     return targets.size(0) if targets.dim() > 1 else 1
+
+def _relative_error(outputs, targets):
+
+    if outputs.dim() == 1:
+        out2 = outputs.reshape(1, -1)
+        gt2 = targets.reshape(1, -1)
+    else:
+        out2 = outputs.reshape(outputs.shape[0], -1)
+        gt2 = targets.reshape(targets.shape[0], -1)
+    diff_norm = torch.norm(out2 - gt2, p=2, dim=1)
+    gt_norm = torch.norm(gt2, p=2, dim=1) + 1e-12
+    return diff_norm / gt_norm
 
 
 def train_model(model, train_loader, val_loader, criterion, optimizer,
@@ -25,11 +37,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     early_stopping_counter = 0
     grad_accum_steps = max(1, int(grad_accum_steps))
 
+    start_time = time.time()
+
     for epoch in range(num_epochs):
         model.train()
         running_loss, n_train = 0.0, 0
         optimizer.zero_grad()
         accum = 0
+        running_rel = 0.0
+
+        print(f"Epoch {epoch+1}/{num_epochs} - Training...")
 
         for inputs, targets in train_loader:
             outputs, targets = _forward_step(model, inputs, targets, device)
@@ -38,6 +55,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
 
             bs = _batch_size(targets)
             running_loss += raw_loss.item() * bs
+            running_rel += _relative_error(outputs, targets).sum().item()
             n_train += bs
             accum += 1
 
@@ -46,11 +64,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 optimizer.zero_grad()
                 accum = 0
 
-        if accum > 0:                      # 尾批残留
+        if accum > 0:                      
             optimizer.step()
             optimizer.zero_grad()
 
         epoch_loss = running_loss / max(n_train, 1)
+        epoch_rel = running_rel / max(n_train, 1) 
 
         # ---- validation ----
         model.eval()
@@ -63,9 +82,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 val_loss += loss.item() * bs
                 n_val += bs
         val_loss /= max(n_val, 1)
+        
 
-        print(f"Epoch {epoch+1}/{num_epochs}, "
-              f"Train: {epoch_loss:.6f}, Val: {val_loss:.6f}")
+        print(f"Train: {epoch_loss:.6f}, Val_Loss: {val_loss:.6f}, average relative error: {epoch_rel:.6f},"
+              f"Time: {time.time() - start_time:.2f}s\n\n")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
