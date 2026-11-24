@@ -33,7 +33,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 num_epochs, device, save_path, grad_accum_steps: int = 1):
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     model.to(device)
-    best_val_loss = float("inf")
+    best_rel_loss = float("inf")
     early_stopping_counter = 0
     grad_accum_steps = max(1, int(grad_accum_steps))
 
@@ -44,18 +44,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         running_loss, n_train = 0.0, 0
         optimizer.zero_grad()
         accum = 0
-        running_rel = 0.0
+        rel_loss = 0.0
 
         print(f"Epoch {epoch+1}/{num_epochs} - Training...")
 
         for inputs, targets in train_loader:
             outputs, targets = _forward_step(model, inputs, targets, device)
-            raw_loss = criterion(outputs, targets)
+            raw_loss = _relative_error(outputs, targets).mean()
             (raw_loss / grad_accum_steps).backward()
 
             bs = _batch_size(targets)
             running_loss += raw_loss.item() * bs
-            running_rel += _relative_error(outputs, targets).sum().item()
+            rel_loss += raw_loss.item() * bs
             n_train += bs
             accum += 1
 
@@ -69,28 +69,27 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             optimizer.zero_grad()
 
         epoch_loss = running_loss / max(n_train, 1)
-        epoch_rel = running_rel / max(n_train, 1) 
+        epoch_rel = rel_loss / max(n_train, 1) 
 
         # ---- validation ----
         model.eval()
-        val_loss, n_val = 0.0, 0
+        rel_loss, n_val = 0.0, 0
         with torch.no_grad():
             for inputs, targets in val_loader:
                 outputs, targets = _forward_step(model, inputs, targets, device)
-                loss = criterion(outputs, targets)
                 bs = _batch_size(targets)
-                val_loss += loss.item() * bs
+                rel_loss += _relative_error(outputs, targets).mean().item() * bs
                 n_val += bs
-        val_loss /= max(n_val, 1)
+        rel_loss /= max(n_val, 1)
         
 
-        print(f"Train: {epoch_loss:.6f}, Val_Loss: {val_loss:.6f}, average relative error: {epoch_rel:.6f},"
+        print(f"Train: {epoch_loss:.6f}, average relative error: {epoch_rel:.6f},"
               f"Time: {time.time() - start_time:.2f}s\n\n")
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if rel_loss < best_rel_loss:
+            best_rel_loss = rel_loss
             torch.save(model.state_dict(), save_path)
-            print(f"Saved best model (val={best_val_loss:.6f})")
+            print(f"Saved best model (rel={best_rel_loss:.6f})")
             early_stopping_counter = 0
         else:
             early_stopping_counter += 1

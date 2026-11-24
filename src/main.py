@@ -30,16 +30,13 @@ def _collate_single(batch):
     return batch[0]
 
 
-
-
-
 def main():
     # ---------- 参数 ----------
     p = argparse.ArgumentParser(description="Train LPD model for EIT")
-    p.add_argument("--epochs",     type=int,   default=10)
+    p.add_argument("--epochs",     type=int,   default=20)
     p.add_argument("--batch-size", type=int,   default=1,
                    help="LPDNet only supports batch_size=1")
-    p.add_argument("--lr",         type=float, default=1e-2)
+    p.add_argument("--lr",         type=float, default=0.1)
     p.add_argument("--val-ratio",  type=float, default=0.2)
     p.add_argument("--device",     type=str,   default="cpu",
                    help="LPDNet is CPU-only, please do not use cuda")
@@ -89,6 +86,7 @@ def main():
     dataset = EITDataset(y_all, sigma_gt_all)
     val_size = max(1, int(round(args.val_ratio * len(dataset))))
     train_size = len(dataset) - val_size
+    torch.manual_seed(2026)
     if train_size < 1:
         raise RuntimeError(f"samples too few({len(dataset)}, can't split into train/val with ratio")
 

@@ -8,3 +8,6 @@ __init__.py
 *.pdf
 *.png
 *.jpg
+*.csv
+
+report.md

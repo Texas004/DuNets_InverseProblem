@@ -159,9 +159,10 @@ class LPDNet(nn.Module):
         self.lam_schedule = [self.tv * 4.0, self.tv * 2.0, self.tv]
 
         # Learnable step sizes.
-        self.gamma = nn.Parameter(torch.tensor(1.0, dtype=self.dtype))
-        self.tau_coeffs = nn.Parameter(torch.full((3,), 0.98, dtype=self.dtype))
-        self.sigma_coeffs = nn.Parameter(torch.full((3,), 0.98, dtype=self.dtype))
+        self.gamma = nn.Parameter(torch.tensor(0.8, dtype=self.dtype))           #1.0
+        self.tau_coeffs = nn.Parameter(torch.full((3,), 0.95, dtype=self.dtype))  #0.98
+        self.sigma_coeffs = nn.Parameter(torch.full((3,), 0.95, dtype=self.dtype))   #0.98
+        self.tau_acc = nn.Parameter(torch.ones(self.inner, dtype = self.dtype))
 
     # ------------------------------------------------------------------
     # Fixed forward model / Jacobian helpers (NumPy)
@@ -237,7 +238,7 @@ class LPDNet(nn.Module):
         qy = torch.zeros_like(qx)
         xb = x
 
-        for _ in range(self.inner):
+        for i in range(self.inner):
             p = (p + sigma * (A_t @ xb - r_t)) / (1.0 + sigma)
             gx, gy = self._grad2(xb)
             qx = qx + sigma * gx
@@ -248,8 +249,8 @@ class LPDNet(nn.Module):
             x = x - tau * (A_t.t() @ p + div)
             x = torch.clamp(x, -self.x_bound, self.x_bound)
             x = x * self.active_ravel
-            xb = 2.0 * x - x_old
-        return x
+            xb = x + self.tau_acc[i] * (x - x_old)
+        return xb
 
     # ------------------------------------------------------------------
     # Backtracking line search on the fixed forward model
@@ -267,7 +268,7 @@ class LPDNet(nn.Module):
             trial_np = np.clip(
                 sigma_np + alpha * delta_np, self.sigma_min, self.sigma_max
             )
-            if np.linalg.norm(y_np - self._predict(trial_np)) < base * (1.0 - 1e-5):
+            if np.linalg.norm(y_np - self._predict(trial_np)) < base * (1 - 1e-5):
                 return torch.clamp(
                     sigma + alpha * delta, self.sigma_min, self.sigma_max
                 )
